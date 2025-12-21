@@ -1,6 +1,6 @@
 # VLMEvalKit for Thinkmorph
 
-This repository provides evaluation support for the ThinkMorph model based on [VLMEvalKit](https://github.com/open-compass/VLMEvalKit).
+This repository provides evaluation support for the ThinkMorph model based on [VLMEvalKit](https://github.com/open-compass/VLMEvalKit). And this repo also supports all the benchmarks evaluated in [our paper](https://arxiv.org/pdf/2510.27492), including: `VSP`, `VisPuzzle`, `ChartQA`, `VStar`, `BLINK-J`, `MMVP`, `SAT`, `BLINK`, and `CV-Bench`.
 
 
 ## Installation
