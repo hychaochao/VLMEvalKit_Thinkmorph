@@ -23,7 +23,7 @@ portalocker
 protobuf
 pylatexenc==2.10
 python-dotenv
-qwen_vl_utils
+# qwen_vl_utils
 requests
 rich
 scikit-learn
@@ -35,10 +35,10 @@ tabulate
 tiktoken
 timeout-decorator
 timm
-torch
-torchvision
+# torch
+# torchvision
 tqdm
-transformers
+# transformers
 typing_extensions
 validators
 xlsxwriter

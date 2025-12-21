@@ -179,6 +179,191 @@ class ImageVQADataset(ImageBaseDataset):
         dump(ret, result_file)
         return ret
 
+class Refocus(ImageBaseDataset):
+    TYPE = 'VQA'
+    DATASET_URL = {
+        'ChartQA_h_bar' : 'https://huggingface.co/datasets/luckychao/vlmevalkit_tsv/resolve/main/ChartQA_h_bar.tsv',
+        'ChartQA_v_bar' : 'https://huggingface.co/datasets/luckychao/vlmevalkit_tsv/resolve/main/ChartQA_v_bar.tsv',
+    }
+    DATASET_MD5 = {
+        'ChartQA_h_bar': 'f2b80671e108a2a4606f125f4caa7180',
+        'ChartQA_v_bar': 'eb380cf0104e9b013522dafbe71ba935',
+    }
+
+    def evaluate(self, eval_file, **judge_kwargs):
+        return self.evaluate_heuristic(eval_file, **judge_kwargs)
+
+    # It returns a DataFrame
+    def evaluate_heuristic(self, eval_file, **judge_kwargs):
+        from .utils.vqa_eval import hit_calculate
+        from .utils.refocus import process_line, Refocus_extract_answer
+
+        model = judge_kwargs['model']
+        model = build_judge(max_tokens=1024, **judge_kwargs)
+        assert model.working(), 'Refocus evaluation requires a working OPENAI API\n' + DEBUG_MESSAGE
+
+        data = load(eval_file)
+        dataset = self.dataset_name
+        assert 'answer' in data and 'prediction' in data
+        data['prediction'] = [str(x) for x in data['prediction']]
+        data['answer'] = [str(x) for x in data['answer']]
+        lt = len(data)
+        pool = mp.Pool(16)
+        lines = [data.iloc[i] for i in range(lt)]
+        if listinstr(['ChartQA'], dataset):
+            res_extracted = pool.map(partial(Refocus_extract_answer, model=model), lines)
+
+        data['extracted_ans'] = [r['extracted_ans'] for r in res_extracted]
+
+        lines = [data.iloc[i] for i in range(lt)]
+
+        if listinstr(['ChartQA'], dataset):
+            res = pool.map(partial(process_line, method='relaxed_accuracy'), lines)
+
+        data['eval_gt'] = [r['gt'] for r in res]
+        data['eval_match'] = [r['match'] for r in res]
+        data['eval_score'] = [np.mean(r['match']) for r in res]
+
+        suffix = eval_file.split('.')[-1]
+        detailed_result_file = eval_file.replace(f'.{suffix}', '_results.xlsx')
+        dump(data, detailed_result_file)
+
+        hit = hit_calculate(res, dataset)
+        ret = dict()
+        if 'split' in data:
+            splits = set(data['split'])
+            for sp in splits:
+                sub = [r for l, r in zip(lines, res) if l['split'] == sp]
+                # [np.mean(x['match']) >= full_score_weight for x in sub]
+                hit = hit_calculate(sub, dataset)
+                ret[sp] = np.mean(hit) * 100
+            sub = [r for l, r in zip(lines, res)]
+            hit = hit_calculate(sub, dataset)
+            ret['Overall'] = np.mean(hit) * 100
+        else:
+            ret['Overall'] = np.mean(hit) * 100
+            if 'category' in data:
+                cates = list(set(data['category']))
+                cates.sort()
+                for c in cates:
+                    sub = [r for l, r in zip(lines, res) if l['category'] == c]
+                    # [np.mean(x['match']) >= full_score_weight for x in sub]
+                    hit = hit_calculate(sub, dataset)
+                    ret[c] = np.mean(hit) * 100
+        ret = d2df(ret)
+        ret.round(2)
+
+        suffix = eval_file.split('.')[-1]
+        result_file = eval_file.replace(f'.{suffix}', '_acc.csv')
+        dump(ret, result_file)
+        return ret
+
+class VSPOriginalDataset(ImageBaseDataset):
+    TYPE = 'VQA'
+    DATASET_URL = {
+        'VSP_maze_task_main_original': 'https://huggingface.co/datasets/luckychao/vlmevalkit_tsv/resolve/main/VSP_maze_task_main_original.tsv'
+    }
+    DATASET_MD5 = {
+        'VSP_maze_task_main_original': 'd52eb0fa0b92c7110bc29d12e0fe688c'
+    }
+
+    def split_vsp(self, msgs):
+        text, images = None, []
+        for s in msgs:
+            if s['type'] == 'image':
+                images.append(s['value'])
+            elif s['type'] == 'text':
+                assert text is None
+                text = s['value']
+
+        import re
+        
+        if '<IMAGE-' not in text and '<TEST-IMAGE>' not in text:
+            return msgs
+        
+        segs = []
+        current_pos = 0
+        
+        pattern = r'<IMAGE-(\d+)>|<TEST-IMAGE>'
+        matches = list(re.finditer(pattern, text))
+        
+        for match in matches:
+            if match.start() > current_pos:
+                text_before = text[current_pos:match.start()]
+                if text_before:
+                    segs.append(dict(type='text', value=text_before))
+            
+            if match.group().startswith('<IMAGE-'):
+                image_idx = int(match.group(1)) - 1
+            else:  # <TEST-IMAGE>
+                image_idx = len(images) - 1
+            
+            if 0 <= image_idx < len(images):
+                segs.append(dict(type='image', value=images[image_idx]))
+            
+            current_pos = match.end()
+        
+        if current_pos < len(text):
+            remaining_text = text[current_pos:]
+            if remaining_text:
+                segs.append(dict(type='text', value=remaining_text))
+        
+        return segs
+
+    def build_prompt(self, line):
+        msgs = super().build_prompt(line)
+        msgs = self.split_vsp(msgs)
+        return msgs
+
+    # It returns a DataFrame
+    @classmethod
+    def evaluate(self, eval_file, **judge_kwargs):
+        from .utils.frozen_lake import Frozen_lake_auxeval, Frozen_lake_acc
+
+        suffix = eval_file.split('.')[-1]
+        model = judge_kwargs['model']
+        storage = eval_file.replace(f'.{suffix}', f'_{model}.xlsx')
+        tmp_file = eval_file.replace(f'.{suffix}', f'_{model}.pkl')
+        nproc = judge_kwargs.pop('nproc', 4)
+        if not osp.exists(storage):
+            data = load(eval_file)
+            model = build_judge(max_tokens=1024, **judge_kwargs)
+            assert model.working(), 'MMVet evaluation requires a working OPENAI API\n' + DEBUG_MESSAGE
+
+            lt = len(data)
+            lines = [data.iloc[i] for i in range(lt)]
+            tups = [(model, line) for line in lines]
+            indices = [line['index'] for line in lines]
+
+            ans = load(tmp_file) if osp.exists(tmp_file) else {}
+            tups = [x for x, i in zip(tups, indices) if i not in ans]
+            indices = [i for i in indices if i not in ans]
+
+            if len(indices):
+                new_results = track_progress_rich(
+                    Frozen_lake_auxeval,
+                    tups,
+                    nproc=nproc,
+                    chunksize=nproc,
+                    keys=indices,
+                    save=tmp_file,
+                )
+                ans = load(tmp_file)
+                for k, v in zip(indices, new_results):
+                    assert k in ans
+                    assert ans[k]['log'] == v['log'] and ans[k]['extracted_path'] == v[
+                        'extracted_path'] and ans[k]['hit'] == v['hit']
+                    
+            data['extracted_path'] = [ans[idx]['extracted_path'] for idx in data['index']]
+            data['log'] = [ans[idx]['log'] for idx in data['index']]
+            data['hit'] = [ans[idx]['hit'] for idx in data['index']]
+            dump(data, storage)
+
+        score = Frozen_lake_acc(storage)
+        score_pth = storage.replace('.xlsx', '_score.csv')
+        dump(score, score_pth)
+        return score
+
 
 class VizWiz(ImageBaseDataset):
     TYPE = 'VQA'

@@ -44,6 +44,10 @@ class ImageMCQDataset(ImageBaseDataset):
     TYPE = 'MCQ'
 
     DATASET_URL = {
+        'VisPuzzle': 'https://huggingface.co/datasets/luckychao/vlmevalkit_tsv/resolve/main/VisPuzzle.tsv',
+        'BLINK_Jigsaw': 'https://huggingface.co/datasets/luckychao/vlmevalkit_tsv/resolve/main/BLINK_Jigsaw.tsv',
+        "SAT_circular": "https://huggingface.co/datasets/luckychao/vlmevalkit_tsv/resolve/main/SAT_circular.tsv",
+
         # MMBench v1.0
         'MMBench_DEV_EN': 'https://opencompass.openxlab.space/utils/benchmarks/MMBench/MMBench_DEV_EN.tsv',
         'MMBench_TEST_EN': 'https://opencompass.openxlab.space/utils/benchmarks/MMBench/MMBench_TEST_EN.tsv',
@@ -125,6 +129,10 @@ class ImageMCQDataset(ImageBaseDataset):
     }
 
     DATASET_MD5 = {
+        'VisPuzzle': '349834f8c1497ba625c9ab7d8004c09d',
+        'BLINK_Jigsaw': '174fc5d2ed0d67f9e0b33cb8a8be6727',
+        "SAT_circular": "3853dc9e3d3c5af96e6d7ed7d058859e",
+        
         # MMBench v1.0
         'MMBench_DEV_EN': 'b6caf1133a01c6bb705cf753bb527ed8',
         'MMBench_TEST_EN': '6939fadb0ce626fefc0bdc9c64efc528',
@@ -260,8 +268,8 @@ class ImageMCQDataset(ImageBaseDataset):
             circular = True
 
         model = judge_kwargs.get('model', 'exact_matching')
-        assert model in ['chatgpt-0125', 'exact_matching', 'gpt-4-0125']
-        name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}
+        assert model in ['chatgpt-0125', 'exact_matching', 'gpt-5']
+        name_str_map = {'chatgpt-0125': 'openai', 'gpt-5': 'gpt5'}
         name_str = name_str_map[model] if model in name_str_map else model
 
         if model == 'exact_matching':

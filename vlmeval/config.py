@@ -1368,6 +1368,10 @@ janus_series = {
     "Janus-Pro-7B": partial(Janus, model_path="deepseek-ai/Janus-Pro-7B"),
 }
 
+thinkmorph_series = {
+    "thinkmorph": partial(ThinkMorph, model_path="ThinkMorph/ThinkMorph-7B", think=True, understanding_output=False, temperature=0.3, max_think_token_n=4096, save_dir = "path_to_your_imgs_dir"),
+}
+
 cogvlm_series = {
     "cogvlm-grounding-generalist": partial(
         CogVlm,
@@ -1956,9 +1960,9 @@ insight_v_series = {
     "insightv": partial(InsightV, pretrained_reason="THUdyh/Insight-V-Reason-LLaMA3", pretrained_summary="THUdyh/Insight-V-Summary-LLaMA3"),
 }
 
-cosmos_series = {
-    'Cosmos-Reason1-7B': partial(Cosmos, model_path='nvidia/Cosmos-Reason1-7B', use_vllm=True),
-}
+# cosmos_series = {
+#     'Cosmos-Reason1-7B': partial(Cosmos, model_path='nvidia/Cosmos-Reason1-7B', use_vllm=True),
+# }
 
 keye_series = {
     "Keye-VL-1.5-8B-auto":partial(KeyeChat, model_path="Kwai-Keye/Keye-VL-1_5-8B"),
@@ -2009,8 +2013,8 @@ model_groups = [
     ross_series, emu_series, ola_series, ursa_series, gemma_series,
     long_vita_series, ristretto_series, kimi_series, aguvis_series, hawkvl_series,
     flash_vl, kimi_vllm_series, oryx_series, treevgr_series, varco_vision_series, qtunevl_series, 
-    xvl_series, thyme_series, logics_series, cosmos_series, keye_series, qianfanvl_series, 
-    lfm2vl_series, rbdashmm_api_series_lmdeploy, interns1_series, insight_v_series
+    xvl_series, thyme_series, logics_series, keye_series, qianfanvl_series, 
+    lfm2vl_series, rbdashmm_api_series_lmdeploy, interns1_series, insight_v_series, thinkmorph_series
 ]
 
 for grp in model_groups:

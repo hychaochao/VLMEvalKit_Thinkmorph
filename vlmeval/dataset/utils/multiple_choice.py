@@ -175,43 +175,6 @@ def report_acc_MMSci(df):
     return full_acc_df
 
 
-def report_topviewrs_acc(df):
-    # assert group in [None, 'category', 'l2-category']
-    res = defaultdict(list)
-    print(df.columns)
-
-    if 'split' in df:
-        splits = list(set(df['split']))
-        res['split'] = splits
-    else:
-        df['split'] = ['none'] * len(df)
-        res['split'] = ['none']
-
-    for group in [None, 'l2-category', 'category']:
-        if group is None:
-
-            res['Overall'] = [np.mean(df[df['split'] == sp]['hit']) for sp in res['split']]
-
-            if 'partial_match' in df:
-                res['Overall_PM'] = [np.mean(df[df['split'] == sp]['partial_match']) for sp in res['split']]
-        elif group not in df:
-            continue
-        else:
-            abilities = list(set(df[group]))
-            abilities.sort()
-            for ab in abilities:
-                ab_name = MMB_abbrs[ab] if ab in MMB_abbrs else ab
-                sub_df = df[df[group] == ab]
-                res[ab_name] = [np.mean(sub_df[sub_df['split'] == sp]['hit']) for sp in res['split']]
-                if 'partial_match' in df:
-                    res[f'{ab_name}_PM'] = [
-                        np.mean(sub_df[sub_df['split'] == sp]['partial_match'])
-                        for sp in res['split']
-                    ]
-
-    return pd.DataFrame(res)
-
-
 def build_prompt(question, options, prediction):
     tmpl = (
         'You are an AI assistant who will help me to match '
@@ -231,6 +194,24 @@ def build_prompt(question, options, prediction):
     )
     return tmpl.format(question, options, prediction)
 
+def build_prompt_jigsaw(question, prediction):
+    tmpl = (
+        'You are an AI assistant who will help me to match '
+        'an answer with several options of a single-choice question. '
+        'You are provided with a question, several options, and an answer, '
+        'and you need to find which option is most similar to the answer. '
+        'If the meaning of all options are significantly different from the answer, output Z. '
+        'Your should output a single uppercase character in A, B, C, D (if they are valid options), and Z. \n'
+        'Example 1: \n'
+        'Question: What is the main object in image?\nOptions: A. teddy bear B. rabbit C. cat D. dog\n'
+        'Answer: a cute teddy bear\nYour output: A\n'
+        'Example 2: \n'
+        'Question: What is the main object in image?\nOptions: A. teddy bear B. rabbit C. cat D. dog\n'
+        'Answer: Spider\nYour output: Z\n'
+        'Example 3: \n'
+        'Question: {}?\nAnswer: {}\nYour output: '
+    )
+    return tmpl.format(question, prediction)
 
 def build_prompt_wemath(question, options, prediction):
     tmpl = (
@@ -259,7 +240,7 @@ def build_prompt_wemath(question, options, prediction):
     return tmpl.format(question, options, prediction)
 
 
-def build_prompt_blink(question, options, prediction):
+def build_prompt_blink_bak(question, options, prediction):
     tmpl = (
         'You are an AI assistant who will help me to match an answer with several options of a single-choice question. '
         'You are provided with a question, several options, and an answer, '
@@ -290,6 +271,69 @@ def build_prompt_blink(question, options, prediction):
         'Example 4: \n'
         'Question: {}?\nOptions: {}\n(Z) Failed\nAnswer: {}\nYour output: '
     )
+    return tmpl.format(question, options, prediction)
+
+def build_prompt_blink(question, options, prediction):
+    tmpl = (
+        """
+        You are an AI assistant that matches an answer to one of the provided single-choice options.
+
+        Task:
+
+        Read the Question, the Options, and the Answer.
+        Decide which option’s meaning is semantically closest to the Answer.
+        Output ONLY one of: (A), (B), (C), (D, if present), or (Z). Do not add any extra text.
+        Rules:
+
+        If the Answer explicitly refuses to answer, cannot help, or indicates it will not choose (e.g., “I can’t help”, “I refuse”, “not sure”, “no answer”), output (Z).
+        If the Answer does not correspond to any option, or its meaning conflicts with all options, output (Z).
+        If the Answer mentions/chooses one of the options by label or clear description, map it directly to that option.
+        If multiple options appear in the Answer, choose the one most strongly endorsed; if still ambiguous, output (Z).
+        Ignore the “(Z) Failed” line in the prompt examples; it’s just a label, not an option to select from the task. Only output (Z) when the above rules require it.
+        If options include more than A/B/C/D, only consider those explicitly listed. If an option label is missing in the provided list, do not output it.
+        If the Answer uses synonyms or paraphrases of an option, choose the best semantic match.
+        If the Answer contradicts itself, or contains both a refusal and a choice, treat it as refusal → output (Z).
+        Output format must be exactly one of: (A) or (B) or (C) or (D) or (Z).
+        Examples:
+
+        Example 1:
+        Question: Which point is closer to the camera?
+        Options:
+        A. Point A
+        B. Point B
+        (Z) Failed
+        Answer: Point B, where the child is sitting, is closer to the camera.
+        Your output: (B)
+
+        Example 2:
+        Question: Which point is closer to the camera?
+        Options:
+        (A) Point A
+        (B) Point B
+        (Z) Failed
+        Answer: I'm sorry, but I can't assist with that request.
+        Your output: (Z)
+
+        Example 3:
+        Question: Which point is corresponding to the reference point?
+        Options:
+        (A) Point A
+        (B) Point B
+        (C) Point C
+        (D) Point D
+        (Z) Failed
+        Answer: The reference point (REF) on the first image is at the tip of the pot... Therefore, there is no correct answer in the choices.
+        Your output: (Z)
+
+        Example 4:
+        Question: {}?
+        Options: {}
+        (Z) Failed
+        Answer: {}
+        Your output:
+    """
+    )
+
     return tmpl.format(question, options, prediction)
 
 
@@ -341,6 +385,17 @@ def build_choices(item):
             ret[ch] = item[ch]
     return ret
 
+def build_choices_jigsaw(item):
+
+    question = item['question']
+
+    pattern = r"\((\w)\)\s*(.*?)(?=\n\(|$)"
+
+    matches = re.findall(pattern, question, re.S)
+
+    ret = {key: value.strip() for key, value in matches}
+
+    return ret
 
 def prefetch_answer(item):
     choices = build_choices(item)
@@ -351,7 +406,19 @@ def extract_answer_from_item(model, item, dataset_name=None):
     logger = get_logger('Evaluation')
     # It will return: (pred, raw, llm_time)
     choices = build_choices(item)
+
     option_str = build_option_str(choices)
+
+    extracted_ans = None
+    if "<answer>" in item['prediction'] and "</answer>" in item['prediction']:
+        extracted_ans = item['prediction'].split("<answer>")[1].split("</answer>")[0]
+        # return dict(opt=extracted_ans, log="rule_based_extract_answer")
+    elif "boxed" in item['prediction']:
+        boxed_pattern = r'\\boxed\{([^}]*)\}'
+        boxed_match = re.search(boxed_pattern, item['prediction'])
+        if boxed_match:
+            boxed_content = boxed_match.group(1).strip()
+            extracted_ans = boxed_content
 
     if dataset_name == 'BLINK':
         prompt = build_prompt_blink(item['question'], option_str, item['prediction'])
@@ -365,12 +432,19 @@ def extract_answer_from_item(model, item, dataset_name=None):
         prompt = build_prompt(item['question'], option_str, item['prediction'])
     retry = 3
 
+    ret_v2 = None
     if dataset_name is not None and 'LEGO' in dataset_name:
         ret = can_infer_lego(item['prediction'], item['question_type'], choices)
     else:
         ret = can_infer(item['prediction'], choices)
+        if extracted_ans:
+            ret_v2 = can_infer(extracted_ans, choices)
+
     if ret:
         return dict(opt=ret, log=item['prediction'])
+    elif ret_v2:
+         return dict(opt=ret_v2, log=extracted_ans)
+    
     if model is None:
         return dict(opt='Z', log='Failed in Prefetch, no GPT-based answer matching under `exact_matching` policy.')
 
@@ -424,9 +498,9 @@ def eval_vanilla(model, item, dataset_name=None):
     res = extract_answer_from_item(model, item, dataset_name=dataset_name)
     opt, match_log = res['opt'], res['log']
     if opt == item['GT']:
-        return dict(hit=1, log=f'Match Log: {match_log}. ')
+        return dict(hit=1, opt=opt, log=f'Match Log: {match_log}. ')
     else:
-        return dict(hit=0, log=f'Match Log: {match_log}. ')
+        return dict(hit=0, opt=opt, log=f'Match Log: {match_log}. ')
 
 
 # For Circular Evaluation
@@ -492,7 +566,11 @@ def mcq_vanilla_eval(model, data, meta, nproc, result_file, dataset_name=None):
         for k, v in zip(keys, res):
             if k not in result:
                 result[k] = v
+    # for x in items:
+    #     eval_vanilla(model, x, dataset_name)
+
     data['hit'] = [result[i]['hit'] for i in data['index']]
+    data['opt'] = [result[i]['opt'] for i in data['index']]
     data['log'] = [result[i]['log'] for i in data['index']]
     if 'GT' in data:
         data.pop('GT')
@@ -562,8 +640,7 @@ def mcq_circular_eval(model, data, meta, nproc, result_file, dataset_name=None):
                 if k not in result:
                     result[k] = v
 
-    tmp_ext = get_pred_file_format()
-    tmp_pth = f'/tmp/{timestr()}.{tmp_ext}'
+    tmp_pth = f'/tmp/{timestr()}.xlsx'
     dump(data_main, tmp_pth)
     data_main = load(tmp_pth)
     indices = data_main['index']
