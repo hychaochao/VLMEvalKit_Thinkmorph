@@ -9,4 +9,3 @@ export OPENAI_API_KEY=
  --model thinkmorph \
  --judge gpt-5 \
  --work-dir ./VLMEvalKit_Thinkmorph/results
-

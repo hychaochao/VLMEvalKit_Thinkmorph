@@ -261,9 +261,13 @@ class Refocus(ImageBaseDataset):
 class VSPOriginalDataset(ImageBaseDataset):
     TYPE = 'VQA'
     DATASET_URL = {
-        'VSP_maze_task_main_original': 'https://huggingface.co/datasets/luckychao/vlmevalkit_tsv/resolve/main/VSP_maze_task_main_original.tsv'
+        'VSP': 'https://huggingface.co/datasets/luckychao/vlmevalkit_tsv/resolve/main/VSP_maze_task_main_original.tsv',
+        'VSP-in': 'https://huggingface.co/datasets/luckychao/vlmevalkit_tsv/resolve/main/VSP_maze_task_main_original.tsv',
+        'VSP_maze_task_main_original': 'https://huggingface.co/datasets/luckychao/vlmevalkit_tsv/resolve/main/VSP_maze_task_main_original.tsv',
     }
     DATASET_MD5 = {
+        'VSP': 'd52eb0fa0b92c7110bc29d12e0fe688c',
+        'VSP-in': 'd52eb0fa0b92c7110bc29d12e0fe688c',
         'VSP_maze_task_main_original': 'd52eb0fa0b92c7110bc29d12e0fe688c'
     }
 
@@ -481,10 +485,124 @@ class OCRBench(ImageBaseDataset):
 class MathVista(ImageBaseDataset):
     TYPE = 'VQA'
     DATASET_URL = {
+        'MathVista':
+        '',
         'MathVista_MINI':
         'https://opencompass.openxlab.space/utils/VLMEval/MathVista_MINI.tsv'
     }
     DATASET_MD5 = {'MathVista_MINI': 'f199b98e178e5a2a20e7048f5dcb0464'}
+
+    @classmethod
+    def supported_datasets(cls):
+        return ['MathVista', 'MathVista_MINI']
+
+    @staticmethod
+    def _official_mathvista_root():
+        from pathlib import Path
+
+        return Path(__file__).resolve().parents[2] / 'ref_repos' / 'MathVista'
+
+    @classmethod
+    def _ensure_mathvista_images(cls):
+        from pathlib import Path
+        import zipfile
+
+        from ..smp.file import download_file
+
+        repo_root = cls._official_mathvista_root()
+        repo_images = repo_root / 'images'
+        if repo_images.exists():
+            return repo_images
+
+        cache_root = Path(LMUDataRoot()) / 'images' / 'MathVista'
+        if cache_root.exists() and any(cache_root.glob('*.jpg')):
+            return cache_root
+
+        cache_root.mkdir(parents=True, exist_ok=True)
+        zip_path = cache_root / 'images.zip'
+        if not zip_path.exists():
+            download_file('https://huggingface.co/datasets/AI4Math/MathVista/resolve/main/images.zip', str(zip_path))
+
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                parts = [part for part in Path(info.filename).parts if part not in ('', '.', 'images')]
+                if not parts:
+                    continue
+                dest = cache_root.joinpath(*parts)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info, 'r') as src, open(dest, 'wb') as dst:
+                    dst.write(src.read())
+        return cache_root
+
+    @classmethod
+    def _build_official_tsv(cls, dataset):
+        import json
+        from pathlib import Path
+
+        split_name = 'test' if dataset == 'MathVista' else 'testmini'
+        repo_root = cls._official_mathvista_root()
+        data_path = repo_root / 'data' / f'{split_name}.json'
+        query_path = repo_root / 'data' / 'query.json'
+        if not data_path.exists() or not query_path.exists():
+            raise FileNotFoundError(f'Official MathVista data not found under {repo_root}')
+
+        image_root = cls._ensure_mathvista_images()
+        cache_path = Path(LMUDataRoot()) / f'{dataset}.tsv'
+
+        problems = json.load(open(data_path, 'r', encoding='utf-8'))
+        queries = json.load(open(query_path, 'r', encoding='utf-8'))
+
+        rows = []
+        for pid, item in problems.items():
+            metadata = item.get('metadata', {})
+            choices = item.get('choices') or []
+            answer = item.get('answer')
+            answer_option = ''
+            if item.get('question_type') == 'multi_choice' and choices and answer in choices:
+                answer_option = chr(ord('A') + choices.index(answer))
+
+            image_rel = Path(item['image'])
+            if image_rel.parts and image_rel.parts[0] == 'images':
+                image_rel = Path(*image_rel.parts[1:])
+            image_path = image_root / image_rel
+
+            rows.append({
+                'index': str(pid),
+                'pid': str(item.get('pid', pid)),
+                'question': queries.get(str(pid), item.get('question', '')),
+                'question_type': item.get('question_type', ''),
+                'answer_type': item.get('answer_type', ''),
+                'precision': item.get('precision', 0) if item.get('precision', None) is not None else 0,
+                'answer': answer,
+                'answer_option': answer_option,
+                'choices': repr(choices),
+                'unit': item.get('unit', '') or '',
+                'image_path': str(image_path),
+                'split': metadata.get('split', split_name),
+                'language': metadata.get('language', ''),
+                'source': metadata.get('source', ''),
+                'category': metadata.get('category', ''),
+                'task': metadata.get('task', ''),
+                'context': metadata.get('context', ''),
+                'grade': metadata.get('grade', ''),
+                'skills': repr(metadata.get('skills', [])),
+            })
+
+        data = pd.DataFrame(rows)
+        dump(data, str(cache_path))
+        return data
+
+    def load_data(self, dataset):
+        from pathlib import Path
+
+        if dataset in ('MathVista', 'MathVista_MINI'):
+            cache_path = Path(LMUDataRoot()) / f'{dataset}.tsv'
+            if cache_path.exists():
+                return load(str(cache_path))
+            return self._build_official_tsv(dataset)
+        return super().load_data(dataset)
 
     def evaluate(self, eval_file, **judge_kwargs):
         if judge_kwargs.get('use_verifier', False):
@@ -3816,11 +3934,15 @@ class AyaVisionBench(ImageVQADataset):
 class MathCanvas(ImageBaseDataset):
     TYPE = 'VQA'
     DATASET_URL = {
+        "MathCanvas-in": "https://huggingface.co/datasets/shiwk24/MathCanvas-Bench/resolve/main/MathCanvas_Bench_VLMEvalKit.tsv",
+        "MathCanvas-in (3k)": "https://huggingface.co/datasets/shiwk24/MathCanvas-Bench/resolve/main/MathCanvas_Bench_VLMEvalKit.tsv",
         "MathCanvas-Bench":
         "https://huggingface.co/datasets/shiwk24/MathCanvas-Bench/resolve/main/MathCanvas_Bench_VLMEvalKit.tsv"
     }
     DATASET_MD5 = {
-        "MathCanvas-Bench": "9fd0b783ca416dbb20ecfb04d2711411"
+        "MathCanvas-in": "827dd1b1ce9c17d2b8338af6a13b6791",
+        "MathCanvas-in (3k)": "827dd1b1ce9c17d2b8338af6a13b6791",
+        "MathCanvas-Bench": "827dd1b1ce9c17d2b8338af6a13b6791"
     }
 
     HINT = (

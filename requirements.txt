@@ -1,5 +1,5 @@
 accelerate
-datasets
+# datasets
 dotenv
 einops
 # for gemini api
@@ -32,7 +32,7 @@ setuptools
 sty
 sympy
 tabulate
-tiktoken
+# tiktoken
 timeout-decorator
 timm
 # torch

@@ -93,6 +93,9 @@ from .medqbench_paired_description import MedqbenchPairedDescriptionDataset
 from .olmOCRBench.olmocrbench import olmOCRBench
 from .oceanocr import OceanOCRBench
 from .matbench import MATBench
+from .mindcubebench import MindCubeBench
+from .mmsibench import MMSIBench
+from .arc_agi import ARCAGIDataset
 
 from .reasonmap_plus import ReasonMap_Plus
 from .hipho import HiPhODataset
@@ -230,7 +233,7 @@ IMAGE_DATASET = [
     AyaVisionBench, TopViewRS, VLMBias, MMHELIX, MedqbenchMCQDataset, MathCanvas, MMReason,
     MedqbenchPairedDescriptionDataset, MedqbenchCaptionDataset, ChartMuseum, ChartQAPro, ReasonMap_Plus,
     olmOCRBench, OceanOCRBench, MATBench, VLRMBench, RefCOCODataset, SimpleVQA, HiPhODataset, MaCBench,
-    UniSVG, SArena_MINI, Refocus, VSPOriginalDataset
+    UniSVG, SArena_MINI, Refocus, VSPOriginalDataset, MindCubeBench, MMSIBench, ARCAGIDataset
 ]
 
 VIDEO_DATASET = [
