@@ -2,8 +2,6 @@ import json
 import os
 import subprocess
 from functools import partial
-
-
 # GET the number of GPUs on the node without importing libs like torch
 def get_gpu_list():
     CUDA_VISIBLE_DEVICES = os.environ.get('CUDA_VISIBLE_DEVICES', '')
