@@ -509,6 +509,10 @@ class Bagel(PreTrainedModel):
         packed_sequence = packed_text_embedding.new_zeros((sum(packed_seqlens), self.hidden_size))
         packed_sequence[packed_text_indexes] = packed_text_embedding
 
+        padded_images = padded_images.to(
+            device=packed_text_embedding.device,
+            dtype=torch.bfloat16,
+        )
         padded_latent = vae_model.encode(padded_images)
 
         p = self.latent_patch_size
@@ -549,7 +553,14 @@ class Bagel(PreTrainedModel):
 
         return past_key_values
 
-    def prepare_vae_latent(self, curr_kvlens, curr_rope, image_sizes, new_token_ids):
+    def prepare_vae_latent(
+        self,
+        curr_kvlens,
+        curr_rope,
+        image_sizes,
+        new_token_ids,
+        noise_seed=None,
+    ):
         packed_text_ids, packed_text_indexes = list(), list()
         packed_vae_position_ids, packed_vae_token_indexes, packed_init_noises = list(), list(), list()
         packed_position_ids, packed_seqlens, packed_indexes = list(), list(), list()
@@ -575,6 +586,8 @@ class Bagel(PreTrainedModel):
 
             h, w = H // self.latent_downsample, W // self.latent_downsample
             num_image_tokens = h * w
+            if noise_seed is not None:
+                torch.manual_seed(noise_seed)
             packed_init_noises.append(
                 torch.randn(num_image_tokens, self.latent_channel * self.latent_patch_size ** 2)
             )
@@ -998,6 +1011,107 @@ class Bagel(PreTrainedModel):
 
         output_device = generated_sequence[0].device
         return torch.stack([i.to(output_device) for i in generated_sequence], dim=0)
+
+    @torch.no_grad()
+    def batch_generate_text(
+        self,
+        past_key_values: NaiveCache,
+        packed_key_value_indexes: torch.LongTensor,
+        key_values_lens: torch.IntTensor,
+        packed_start_tokens: torch.LongTensor,
+        packed_query_position_ids: torch.LongTensor,
+        max_length: int,
+        do_sample: bool = False,
+        temperature: float = 1.0,
+        end_token_id: int = None,
+    ):
+        """Batch text generation with per-sample EOS tracking."""
+        device = None
+        for i in range(past_key_values.num_layers):
+            if past_key_values.key_cache[i] is not None:
+                device = past_key_values.key_cache[i].device
+                break
+        if device is None:
+            device = packed_start_tokens.device
+
+        packed_key_value_indexes = packed_key_value_indexes.to(device)
+        key_values_lens = key_values_lens.to(device)
+        packed_start_tokens = packed_start_tokens.to(device)
+        packed_query_position_ids = packed_query_position_ids.to(device)
+
+        batch_size = len(key_values_lens)
+
+        generated_sequences = [[] for _ in range(batch_size)]
+        finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
+        curr_tokens = packed_start_tokens.clone()
+
+        step = 0
+        while step < max_length:
+            for i in range(batch_size):
+                if not finished[i]:
+                    generated_sequences[i].append(curr_tokens[i].clone())
+
+            packed_text_embedding = self.language_model.model.embed_tokens(curr_tokens)
+            query_lens = torch.ones_like(curr_tokens)
+            packed_query_indexes = torch.cumsum(key_values_lens, dim=0) + torch.arange(
+                0, len(key_values_lens),
+                device=key_values_lens.device,
+                dtype=key_values_lens.dtype,
+            )
+
+            uppacked = list(packed_key_value_indexes.split(key_values_lens.tolist(), dim=0))
+            for i in range(len(uppacked)):
+                uppacked[i] += i
+            packed_key_value_indexes = torch.cat(uppacked, dim=0)
+
+            extra_inputs = {}
+            if self.use_moe:
+                extra_inputs = {"mode": "und"}
+
+            output = self.language_model.forward_inference(
+                packed_query_sequence=packed_text_embedding,
+                query_lens=query_lens,
+                packed_query_position_ids=packed_query_position_ids,
+                packed_query_indexes=packed_query_indexes,
+                past_key_values=past_key_values,
+                key_values_lens=key_values_lens,
+                packed_key_value_indexes=packed_key_value_indexes,
+                update_past_key_values=True,
+                is_causal=True,
+                **extra_inputs,
+            )
+            past_key_values = output.past_key_values
+            pred_logits = self.language_model.lm_head(output.packed_query_sequence)
+
+            if do_sample:
+                probs = nn.functional.softmax(pred_logits / temperature, dim=-1)
+                curr_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
+            else:
+                curr_tokens = torch.argmax(pred_logits, dim=-1)
+
+            if end_token_id is not None:
+                newly_finished = (curr_tokens == end_token_id) & (~finished)
+                finished = finished | newly_finished
+
+            uppacked = list(packed_key_value_indexes.split(key_values_lens.tolist(), dim=0))
+            for i in range(len(uppacked)):
+                uppacked[i] = torch.cat(
+                    [uppacked[i], torch.tensor([uppacked[i][-1] + 1], device=uppacked[i].device)],
+                    dim=0,
+                )
+            packed_key_value_indexes = torch.cat(uppacked, dim=0)
+            key_values_lens = key_values_lens + 1
+            packed_query_position_ids = packed_query_position_ids + 1
+
+            step += 1
+
+            if finished.all():
+                break
+
+        return [
+            torch.stack(seq, dim=0) if seq else torch.tensor([], dtype=torch.long, device=device)
+            for seq in generated_sequences
+        ]
 
     # for evaluation
     @torch.no_grad()
