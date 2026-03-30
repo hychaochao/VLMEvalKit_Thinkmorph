@@ -7,6 +7,17 @@ from vlmeval.smp import *
 FAIL_MSG = 'Failed to obtain answer via API.'
 
 
+def _prepare_batch_message(model, struct):
+    assert model.check_content(struct) in ['str', 'dict', 'liststr', 'listdict'], (
+        f'Invalid input type: {struct}'
+    )
+    message = model.preproc_content(struct)
+    assert message is not None and model.check_content(message) == 'listdict'
+    for item in message:
+        assert item['type'] in model.allowed_types, f'Invalid input type: {item["type"]}'
+    return message
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data', type=str, nargs='+', required=True)
@@ -143,6 +154,70 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         return model
     else:
         model.set_dump_image(dataset.dump_image)
+
+    batch_generate_func = getattr(model, 'generate_inner_batch', None)
+    model_batch_size = getattr(model, 'batch_size', None)
+    if callable(batch_generate_func) and model_batch_size and model_batch_size > 1:
+        pending_samples = []
+        for i in range(lt):
+            idx = data.iloc[i]['index']
+            if idx in res:
+                continue
+
+            if hasattr(model, 'use_custom_prompt') and model.use_custom_prompt(dataset_name):
+                struct = model.build_prompt(data.iloc[i], dataset=dataset_name)
+            else:
+                struct = dataset.build_prompt(data.iloc[i])
+            pending_samples.append((idx, _prepare_batch_message(model, struct)))
+
+        batch_size = model_batch_size
+        processed = 0
+        for start_idx in tqdm(
+            range(0, len(pending_samples), batch_size),
+            desc=f'Infer {model_name}/{dataset_name}, Rank {rank}/{world_size}',
+        ):
+            chunk = pending_samples[start_idx:start_idx + batch_size]
+            chunk_indices = [idx for idx, _ in chunk]
+            chunk_messages = [msg for _, msg in chunk]
+
+            if os.environ.get('SKIP_ERR', False) == '1':
+                try:
+                    responses = batch_generate_func(chunk_messages, dataset=dataset_name)
+                except RuntimeError as err:
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
+                    warnings.warn(f'{type(err)} {str(err)}')
+                    responses = []
+                    for message in chunk_messages:
+                        try:
+                            response = model.generate_inner(message, dataset=dataset_name)
+                        except RuntimeError as inner_err:
+                            if torch.cuda.is_available():
+                                torch.cuda.synchronize()
+                            warnings.warn(f'{type(inner_err)} {str(inner_err)}')
+                            response = f'{FAIL_MSG}: {type(inner_err)} {str(inner_err)}'
+                        responses.append(response)
+            else:
+                responses = batch_generate_func(chunk_messages, dataset=dataset_name)
+
+            if len(responses) != len(chunk_indices):
+                raise ValueError(
+                    f'Batch output size mismatch: expected {len(chunk_indices)}, got {len(responses)}'
+                )
+
+            for idx, response in zip(chunk_indices, responses):
+                if verbose:
+                    print(response, flush=True)
+                res[idx] = response
+
+            processed += len(chunk_indices)
+            torch.cuda.empty_cache()
+            if processed % 10 == 0:
+                dump(res, out_file)
+
+        res = {k: res[k] for k in data_indices}
+        dump(res, out_file)
+        return model
 
     for i in tqdm(range(lt), desc=f'Infer {model_name}/{dataset_name}, Rank {rank}/{world_size}'):
         idx = data.iloc[i]['index']

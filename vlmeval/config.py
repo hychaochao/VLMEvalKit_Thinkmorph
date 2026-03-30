@@ -1369,7 +1369,16 @@ janus_series = {
 }
 
 thinkmorph_series = {
-    "thinkmorph": partial(ThinkMorph, model_path="ThinkMorph/ThinkMorph-7B", think=True, understanding_output=False, temperature=0.3, max_think_token_n=4096, save_dir = "path_to_your_imgs_dir"),
+    "thinkmorph": partial(
+        ThinkMorph, 
+        model_path="ThinkMorph/ThinkMorph-7B", 
+        think=True, 
+        understanding_output=False, 
+        temperature=0.3, 
+        max_think_token_n=4096, 
+        save_dir="outputs",
+        batch_size=4,
+        use_cfg_parallel=True),
 }
 
 cogvlm_series = {

@@ -7,3 +7,4 @@ from .modeling.qwen2 import Qwen2Tokenizer
 from .modeling.autoencoder import load_ae
 from .modeling.bagel.qwen2_navit import NaiveCache
 from .inferencer import InterleaveInferencer
+from .batch_inferencer import BatchInterleaveInferencer

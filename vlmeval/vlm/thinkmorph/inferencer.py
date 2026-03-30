@@ -29,6 +29,9 @@ class InterleaveInferencer:
         self.vae_transform = vae_transform
         self.vit_transform = vit_transform
         self.new_token_ids = new_token_ids
+        vae_param = next(self.vae_model.parameters())
+        self.vae_device = vae_param.device
+        self.vae_dtype = vae_param.dtype
         
     def init_gen_context(self): 
         gen_context = {
@@ -114,6 +117,7 @@ class InterleaveInferencer:
         num_timesteps=50, 
         timestep_shift=3.0,
         enable_taylorseer=False,
+        noise_seed=None,
     ):
         # print(cfg_renorm_type)
         past_key_values = gen_context['past_key_values']
@@ -124,6 +128,7 @@ class InterleaveInferencer:
             curr_rope=ropes, 
             image_sizes=[image_shape], 
             new_token_ids=self.new_token_ids,
+            noise_seed=noise_seed,
         ) 
         
         # text cfg
@@ -180,6 +185,11 @@ class InterleaveInferencer:
         latent = latent.reshape(1, h, w, self.model.latent_patch_size, self.model.latent_patch_size, self.model.latent_channel)
         latent = torch.einsum("nhwpqc->nchpwq", latent)
         latent = latent.reshape(1, self.model.latent_channel, h * self.model.latent_patch_size, w * self.model.latent_patch_size)
+        latent = latent.to(
+            device=self.vae_device,
+            dtype=self.vae_dtype,
+            non_blocking=True,
+        )
         image = self.vae_model.decode(latent)
         image = (image * 0.5 + 0.5).clamp(0, 1)[0].permute(1, 2, 0) * 255
         image = Image.fromarray((image).to(torch.uint8).cpu().numpy())
@@ -225,6 +235,8 @@ class InterleaveInferencer:
         cfg_renorm_type="global",
         image_shapes=(1024, 1024),
         enable_taylorseer=False,
+        noise_seed=None,
+        use_cfg_parallel=False,
         max_rounds:int=3,
     ) -> List[Union[str, Image.Image]]:
 
@@ -282,6 +294,7 @@ class InterleaveInferencer:
                             num_timesteps=num_timesteps,
                             cfg_renorm_min=cfg_renorm_min,
                             cfg_renorm_type=cfg_renorm_type,
+                            noise_seed=noise_seed,
                         )
                         output_list.append(img)
 
