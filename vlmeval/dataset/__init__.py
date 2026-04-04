@@ -74,8 +74,16 @@ from .mmmath import MMMath
 from .dynamath import Dynamath
 from .creation import CreationMMBenchDataset
 from .mmalignbench import MMAlignBench
+from .mindcubebench import MindCubeBench
+from .mmsibench import MMSIBench
+from .arc_agi import ARCAGIDataset
+from .omnispatialbench import OmniSpatialBench
+from .sitebench import SiteBenchImage, SiteBenchVideo
+from .spatialvizbench import SpatialVizBench
+from .viewspatialbench import ViewSpatialBench
+from .erqabench import ERQABench
+from .official_extra_benches import AllAnglesBench, SuperCLEVRBench, TriBenchDataset
 from .utils import *
-from .video_dataset_config import *
 from ..smp import *
 from .OmniDocBench.omnidocbench import OmniDocBench
 from .moat import MOAT
@@ -93,9 +101,7 @@ from .medqbench_paired_description import MedqbenchPairedDescriptionDataset
 from .olmOCRBench.olmocrbench import olmOCRBench
 from .oceanocr import OceanOCRBench
 from .matbench import MATBench
-from .mindcubebench import MindCubeBench
-from .mmsibench import MMSIBench
-from .arc_agi import ARCAGIDataset
+from .video_dataset_config import *
 
 from .reasonmap_plus import ReasonMap_Plus
 from .hipho import HiPhODataset
@@ -233,7 +239,9 @@ IMAGE_DATASET = [
     AyaVisionBench, TopViewRS, VLMBias, MMHELIX, MedqbenchMCQDataset, MathCanvas, MMReason,
     MedqbenchPairedDescriptionDataset, MedqbenchCaptionDataset, ChartMuseum, ChartQAPro, ReasonMap_Plus,
     olmOCRBench, OceanOCRBench, MATBench, VLRMBench, RefCOCODataset, SimpleVQA, HiPhODataset, MaCBench,
-    UniSVG, SArena_MINI, Refocus, VSPOriginalDataset, MindCubeBench, MMSIBench, ARCAGIDataset
+    UniSVG, SArena_MINI, Refocus, VSPOriginalDataset, MindCubeBench, MMSIBench, ARCAGIDataset,
+    OmniSpatialBench, SiteBenchImage, SpatialVizBench, ViewSpatialBench, ERQABench,
+    AllAnglesBench, SuperCLEVRBench, TriBenchDataset
 ]
 
 VIDEO_DATASET = [
@@ -245,7 +253,7 @@ VIDEO_DATASET = [
     QBench_Video, QBench_Video_MCQ, QBench_Video_VQA,
     Video_MMLU_CAP, Video_MMLU_QA,
     Video_Holmes, VCRBench, CGAVCounting,
-    EgoExoBench_MCQ, DREAM, VideoTT, VideoMMMU, VSIBench
+    EgoExoBench_MCQ, DREAM, VideoTT, VideoMMMU, VSIBench, SiteBenchVideo
 
 ]
 
@@ -260,12 +268,40 @@ CUSTOM_DATASET = [
 DATASET_COLLECTION = [ConcatDataset, ConcatVideoDataset]
 
 DATASET_CLASSES = IMAGE_DATASET + VIDEO_DATASET + TEXT_DATASET + CUSTOM_DATASET + DATASET_COLLECTION  # noqa: E501
+DATASET_ALIASES = {
+    'OmniSpatial': 'OmniSpatialBench',
+    'SITE': 'SiteBenchImage',
+    'SITE-Image': 'SiteBenchImage',
+    'SITE-Video': 'SiteBenchVideo_32frame',
+    'SpatialViz-Bench': 'SpatialVizBench',
+    'ViewSpatial-Bench': 'ViewSpatialBench',
+    'All-Angles Bench': 'All_Angles_Bench',
+    'All-Angles-Bench': 'All_Angles_Bench',
+}
+
+
+def normalize_dataset_name(dataset_name):
+    if dataset_name is None:
+        return None
+    return DATASET_ALIASES.get(dataset_name, dataset_name)
+
+
 SUPPORTED_DATASETS = []
 for DATASET_CLS in DATASET_CLASSES:
     SUPPORTED_DATASETS.extend(DATASET_CLS.supported_datasets())
+SUPPORTED_DATASETS.extend([name for name in DATASET_ALIASES if name not in SUPPORTED_DATASETS])
+SUPPORTED_DATASETS.extend([name for name in supported_video_datasets if name not in SUPPORTED_DATASETS])
+SUPPORTED_DATASETS = list(dict.fromkeys(SUPPORTED_DATASETS))
 
 
 def DATASET_TYPE(dataset, *, default: str = 'MCQ') -> str:
+    dataset = normalize_dataset_name(dataset)
+    if dataset in supported_video_datasets:
+        dataset_builder = supported_video_datasets[dataset]
+        dataset_cls = getattr(dataset_builder, 'func', dataset_builder)
+        if hasattr(dataset_cls, 'TYPE'):
+            return dataset_cls.TYPE
+        return 'Video-MCQ'
     for cls in DATASET_CLASSES:
         if dataset in cls.supported_datasets():
             if hasattr(cls, 'TYPE'):
@@ -284,9 +320,12 @@ def DATASET_TYPE(dataset, *, default: str = 'MCQ') -> str:
 
 
 def DATASET_MODALITY(dataset, *, default: str = 'IMAGE') -> str:
+    dataset = normalize_dataset_name(dataset)
     if dataset is None:
         warnings.warn(f'Dataset is not specified, will treat modality as {default}. ')
         return default
+    if dataset in supported_video_datasets:
+        return 'VIDEO'
     for cls in DATASET_CLASSES:
         if dataset in cls.supported_datasets():
             if hasattr(cls, 'MODALITY'):
@@ -307,10 +346,12 @@ def DATASET_MODALITY(dataset, *, default: str = 'IMAGE') -> str:
 
 
 def build_dataset(dataset_name, **kwargs):
+    dataset_name = normalize_dataset_name(dataset_name)
+    if dataset_name in supported_video_datasets:
+        return supported_video_datasets[dataset_name](**kwargs)
+
     for cls in DATASET_CLASSES:
-        if dataset_name in supported_video_datasets:
-            return supported_video_datasets[dataset_name](**kwargs)
-        elif dataset_name in cls.supported_datasets():
+        if dataset_name in cls.supported_datasets():
             return cls(dataset=dataset_name, **kwargs)
 
     warnings.warn(f'Dataset {dataset_name} is not officially supported. ')
