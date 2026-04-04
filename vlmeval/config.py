@@ -1377,8 +1377,9 @@ thinkmorph_series = {
         temperature=0.3, 
         max_think_token_n=4096, 
         save_dir="outputs",
-        batch_size=4,
-        use_cfg_parallel=True),
+        batch_size=8,
+        use_torch_compile=True,
+    ),
 }
 
 cogvlm_series = {

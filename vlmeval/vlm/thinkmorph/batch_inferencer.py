@@ -582,10 +582,7 @@ class BatchInterleaveInferencer(InterleaveInferencer):
             x_t = x_t - v_t.to(x_t.device) * dts[i]
 
         unpacked_latent = x_t.split(sample_token_lens)
-        return [
-            self.decode_image(latent, shape)
-            for latent, shape in zip(unpacked_latent, image_shapes)
-        ]
+        return self.batch_decode_images(unpacked_latent, image_shapes)
 
     # ------------------------------------------------------------------ #
     #  Batch image generation (single-model or multi-GPU)
