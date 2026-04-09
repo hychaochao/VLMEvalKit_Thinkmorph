@@ -196,12 +196,53 @@ class InterleaveInferencer:
 
         return image
 
+    def batch_decode_images(self, latents, image_shapes):
+        Hs, Ws = [s[0] for s in image_shapes], [s[1] for s in image_shapes]
+        hs, ws = [H // self.model.latent_downsample for H in Hs], [W // self.model.latent_downsample for W in Ws]
+        
+        grouped_latents = {}
+        for idx, (latent, h, w) in enumerate(zip(latents, hs, ws)):
+            key = (h, w)
+            if key not in grouped_latents:
+                grouped_latents[key] = []
+            grouped_latents[key].append((idx, latent))
+        
+        results = [None] * len(latents)
+        
+        for (h, w), items in grouped_latents.items():
+            indices = [idx for idx, _ in items]
+            batch_latents = [latent for _, latent in items]
+            
+            batch_tensor = []
+            for latent in batch_latents:
+                tensor = latent.reshape(1, h, w, self.model.latent_patch_size, self.model.latent_patch_size, self.model.latent_channel)
+                tensor = torch.einsum("nhwpqc->nchpwq", tensor)
+                tensor = tensor.reshape(1, self.model.latent_channel, h * self.model.latent_patch_size, w * self.model.latent_patch_size)
+                batch_tensor.append(tensor)
+            
+            batch_tensor = torch.cat(batch_tensor, dim=0)
+            batch_tensor = batch_tensor.to(
+                device=self.vae_device,
+                dtype=self.vae_dtype,
+                non_blocking=True,
+            )
+            
+            batch_images = self.vae_model.decode(batch_tensor)
+            batch_images = (batch_images * 0.5 + 0.5).clamp(0, 1)
+            batch_images = batch_images.permute(0, 2, 3, 1) * 255
+            batch_images = batch_images.to(torch.uint8).cpu()
+            
+            for i, idx in enumerate(indices):
+                img_array = batch_images[i].numpy()
+                results[idx] = Image.fromarray(img_array)
+        
+        return results
+
     @torch.no_grad()
     def gen_text(self, gen_context, max_length: int = 500, do_sample: bool = True, temperature: float = 1.0):
-        gen_context = deepcopy(gen_context)
         past_key_values = gen_context['past_key_values']
-        kv_lens = gen_context['kv_lens']
-        ropes = gen_context['ropes']
+        kv_lens = list(gen_context['kv_lens'])
+        ropes = list(gen_context['ropes'])
 
         generation_input = self.model.prepare_start_tokens(kv_lens, ropes, self.new_token_ids)
         unpacked_latent = self.model.generate_text(

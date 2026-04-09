@@ -149,6 +149,12 @@ class ThinkMorph(BaseModel):
                 raise ValueError("batch_size must be a positive integer.")
         self.use_batch_inferencer = bool(self.batch_size and self.batch_size > 1)
         self.use_cfg_parallel = bool(kwargs.get("use_cfg_parallel", False))
+        
+        # Detect distributed mode from environment variables (set by torchrun)
+        self.local_rank = int(os.environ.get('LOCAL_RANK', 0))
+        self.rank = int(os.environ.get('RANK', 0))
+        self.world_size = int(os.environ.get('WORLD_SIZE', 1))
+        self.is_distributed = self.world_size > 1
 
         if save_dir is not None:
             os.makedirs(save_dir, exist_ok=True)
@@ -186,20 +192,30 @@ class ThinkMorph(BaseModel):
 
         model_checkpoint = os.path.join(model_path, "model.safetensors")
         cfg_parallel_worker_names = []
-        if self.use_cfg_parallel and not understanding_output:
-            if cfg_text_scale > 1.0:
-                cfg_parallel_worker_names.append("cfg_text")
-            if cfg_img_scale > 1.0:
-                cfg_parallel_worker_names.append("cfg_img")
+        
+        # In distributed mode, disable CFG parallel and use single GPU per rank
+        if self.is_distributed:
+            if self.use_cfg_parallel:
+                print(f"[Rank {self.rank}] CFG parallel is disabled in distributed mode. Using single GPU per rank.")
+                self.use_cfg_parallel = False
+            target_device = f"cuda:{self.local_rank}"
+            torch.cuda.set_device(self.local_rank)
+        else:
+            target_device = None
+            if self.use_cfg_parallel and not understanding_output:
+                if cfg_text_scale > 1.0:
+                    cfg_parallel_worker_names.append("cfg_text")
+                if cfg_img_scale > 1.0:
+                    cfg_parallel_worker_names.append("cfg_img")
 
-            required_gpu_num = 1 + len(cfg_parallel_worker_names)
-            if torch.cuda.device_count() < required_gpu_num:
-                print(
-                    f"Visible GPU count {torch.cuda.device_count()} is not enough for "
-                    f"multi-GPU CFG parallel (need {required_gpu_num}). "
-                    "Falling back to single-model CFG parallel."
-                )
-                cfg_parallel_worker_names = []
+                required_gpu_num = 1 + len(cfg_parallel_worker_names)
+                if torch.cuda.device_count() < required_gpu_num:
+                    print(
+                        f"Visible GPU count {torch.cuda.device_count()} is not enough for "
+                        f"multi-GPU CFG parallel (need {required_gpu_num}). "
+                        "Falling back to single-model CFG parallel."
+                    )
+                    cfg_parallel_worker_names = []
 
         cfg_parallel_workers = {}
         if cfg_parallel_worker_names:
@@ -237,16 +253,44 @@ class ThinkMorph(BaseModel):
             model = cfg_parallel_workers["base"]["model"]
             vae_device = cfg_parallel_workers["base"]["device"]
         else:
-            model = _load_bagel_model(
-                llm_config,
-                vit_config,
-                vae_config,
-                model_checkpoint,
-            )
-            vae_device = "cuda" if torch.cuda.is_available() else "cpu"
+            if self.is_distributed:
+                model = _load_bagel_model_for_device(
+                    llm_config,
+                    vit_config,
+                    vae_config,
+                    model_checkpoint,
+                    target_device,
+                )
+                vae_device = target_device
+            else:
+                model = _load_bagel_model(
+                    llm_config,
+                    vit_config,
+                    vae_config,
+                    model_checkpoint,
+                )
+                vae_device = "cuda" if torch.cuda.is_available() else "cpu"
 
         vae_model = vae_model.to(vae_device).to(torch.bfloat16).eval()
-        print('Model loaded successfully')
+        if self.is_distributed:
+            print(f'[Rank {self.rank}] Model loaded successfully on {vae_device}')
+        else:
+            print('Model loaded successfully')
+
+        use_torch_compile = kwargs.get("use_torch_compile", True)
+        if use_torch_compile:
+            try:
+                model.language_model = torch.compile(
+                    model.language_model,
+                    mode="reduce-overhead",
+                    fullgraph=False,
+                )
+                if self.is_distributed:
+                    print(f'[Rank {self.rank}] language_model compiled with torch.compile')
+                else:
+                    print('language_model compiled with torch.compile')
+            except Exception as e:
+                print(f'torch.compile failed: {e}, using eager mode')
 
         self.model = model
         self.vae_model = vae_model
