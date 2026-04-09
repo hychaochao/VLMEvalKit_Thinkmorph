@@ -17,6 +17,22 @@
 | 13  | MMMU                 | General    | 0          | ✓ | 支持 | 支持 | `MMMU_DEV_VAL`、`MMMU_TEST`，另含 `MMMU_Pro_*` | [MMMU](https://github.com/MMMU-Benchmark/MMMU) |
 | 14  | ScienceQA            | General    | 0          | ✓ | 支持 | 支持 | `ScienceQA_VAL`、`ScienceQA_TEST` | [ScienceQA](https://github.com/lupantech/ScienceQA) |
 | 15  | ARC-AGI              | General    | 0          | ✓ | 暂不支持 | 暂不支持 | 当前仓库新增 `ARC-AGI`：基于官方 `ARC-AGI-2` public evaluation JSON 渲染任务图，要求模型输出 JSON grid，并做 exact-match task-level eval | [ARC-AGI-2](https://github.com/arcprize/ARC-AGI-2) |
+| 16  | MathVerse            | Math       | 0          | ✓ | 暂不支持（仅 `MathVerse_MINI` 系列） | 暂不支持（仅 `MathVerse_MINI` 系列） | 当前仓库新增 `MathVerse` 官方 public 数据接入，实际基于官方 HF 公开的 `testmini`（3940 samples）构建；仍不等同于未公开的完整全量集 | [MathVerse](https://github.com/ZrrSkywalker/MathVerse) |
+| 17  | OmniSpatial          | Spatial    | 0          | ✓ | 暂不支持 | 支持 | 当前仓库已同步接入，新增别名 `OmniSpatial`，默认映射到 `OmniSpatialBench`；同时支持 `OmniSpatialBench_default`、`OmniSpatialBench_zeroshot_cot`、`OmniSpatialBench_manual_cot` | [OmniSpatial](https://github.com/qizekun/OmniSpatial) |
+| 18  | Super-CLEVR          | Spatial    | 0          | ✓ | 暂不支持 | 暂不支持 | 当前仓库新增官方 HF 数据接入，基于 `images.zip + superCLEVR_questions_30k.json` 构建 `Super-CLEVR` 数据集并做短答 exact-match eval | [Super-CLEVR](https://github.com/Lizw14/Super-CLEVR) |
+| 19  | SITE                 | Spatial    | 0          | ✓ | 暂不支持 | 支持 | 当前仓库已同步接入，新增别名 `SITE`、`SITE-Image`，默认映射到 `SiteBenchImage`；同时支持 `SiteBenchVideo_32frame`、`SiteBenchVideo_64frame`、`SiteBenchVideo_1fps`，其中 video 评测依赖 `decord` | [SITE-Bench](https://github.com/wenqi-wang20/SITE-Bench) |
+| 20  | SpatialViz-Bench     | Spatial    | 0          | ✓ | 暂不支持 | 支持 | 当前仓库已同步接入，新增别名 `SpatialViz-Bench`，默认映射到 `SpatialVizBench`；同时支持 `SpatialVizBench_CoT` | [SpatialViz-Bench](https://github.com/wangst0181/SpatialViz-Bench) |
+| 21  | ViewSpatial-Bench    | Spatial    | 0          | ✓ | 暂不支持 | 支持 | 当前仓库已同步接入，新增别名 `ViewSpatial-Bench`，默认映射到 `ViewSpatialBench` | [ViewSpatial-Bench](https://github.com/ZJU-REAL/ViewSpatial-Bench) |
+| 22  | 3DSRBench            | Spatial    | 0          | ✓ | 支持 | 支持 | `3DSRBench`；官方公开可获取形式主要是 HuggingFace dataset repo，当前已按该源 clone | [3DSRBench](https://huggingface.co/datasets/ccvl/3DSRBench) |
+| 23  | All-Angles Bench     | Spatial    | 0          | ✓ | 暂不支持 | 暂不支持 | 当前仓库新增 `All_Angles_Bench`，并兼容别名 `All-Angles Bench` / `All-Angles-Bench`；数据按官方 HF `data.json` 自动转成 TSV，多图 MCQ eval 复用框架通用流程 | [All-Angles Bench](https://github.com/Chenyu-Wang567/All-Angles-Bench) |
+| 24  | ERQA                 | Embodied   | 0          | ✓ | 暂不支持 | 支持 | 当前仓库已同步接入，支持 `ERQA` / `ERQABench` 评测流程 | [ERQA](https://github.com/embodiedreasoning/ERQA) |
+| 25  | Embodied-bench       | Embodied   | 0          |  | 暂不支持（仅 `StaticEmbodiedBench`） | 暂不支持（仅 `StaticEmbodiedBench`） | 当前仓库与官方 VLMEvalKit 仅内置 `StaticEmbodiedBench`、`StaticEmbodiedBench_circular`，不等同于完整 `EmbodiedBench` agent benchmark | [EmbodiedBench](https://github.com/EmbodiedBench/EmbodiedBench) |
+| 26  | SEED-Bench-2-Plus    | Perception | 0          | ✓ | 支持 | 支持 | `SEEDBench2_Plus` | [SEED-Bench](https://github.com/AILab-CVC/SEED-Bench) |
+| 27  | MME-RealWorld-Lite   | Perception | 0          | ✓ | 支持 | 支持 | `MME-RealWorld-Lite`，另含 `MME-RealWorld`、`MME-RealWorld-CN` | [MME-RealWorld](https://github.com/MME-Benchmarks/MME-RealWorld) |
+| 28  | RealWorldQA          | Perception | 0          | ✓ | 支持 | 支持 | `RealWorldQA` | [RealWorldQA](https://huggingface.co/datasets/xai-org/RealworldQA) |
+| 29  | MMStar               | General    | 0          | ✓ | 支持 | 支持 | `MMStar`，另含 `MMStar_KO`、`MMStar_TR`、`MMStar_MINI` | [MMStar](https://github.com/MMStar-Benchmark/MMStar) |
+| 30  | TRI-Bench            | General    | 0          | ✓ | 暂不支持 | 暂不支持 | 当前仓库新增 `TRI-Bench`：复用官方 prompt 与官方 `3D/2D` 评分公式，对每张图输出六个 JSON 字段，并汇总 `overall_3d_accuracy / overall_2d_accuracy` | [TRI-Bench](https://github.com/Amiton7/Tri-Bench) |
+| 31  | OrderBench           | General    | 0          |  | 暂不支持 | 暂不支持 | 当前仓库与官方 VLMEvalKit 均暂未发现内置实现；暂未检索到可靠公开官方代码 | 暂未找到可靠公开官方代码 |
 
 ### 本地已跑结果汇总
 

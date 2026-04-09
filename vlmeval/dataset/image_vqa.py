@@ -1,10 +1,14 @@
 import os
 import re
 import tempfile
+import json
+import zipfile
+from pathlib import Path
 from functools import partial
 
 import pandas as pd
 from tqdm import tqdm
+from huggingface_hub import snapshot_download
 
 from .image_base import ImageBaseDataset
 from .utils import build_judge, DEBUG_MESSAGE
@@ -728,6 +732,7 @@ class MathVista(ImageBaseDataset):
 class MathVerse(ImageBaseDataset):
     TYPE = 'VQA'
     DATASET_URL = {
+        'MathVerse': '',
         'MathVerse_MINI':
         'http://opencompass.openxlab.space/utils/benchmarks/MathVerse/MathVerse_MINIV.tsv',  # noqa
         'MathVerse_MINI_Vision_Only':
@@ -752,6 +757,57 @@ class MathVerse(ImageBaseDataset):
         'MathVerse_MINI_Text_Lite': '19e4b13bdd30b89a03b2e358bcfefa04',
         'MathVerse_MINI_Text_Dominant': '4f5cd2fa6630ea00bb11d6fde1f6fe6a',
     }
+
+    def load_data(self, dataset):
+        if dataset == 'MathVerse':
+            return self.prepare_public_mathverse(dataset)
+        return super().load_data(dataset)
+
+    def prepare_public_mathverse(self, dataset):
+        data_root = Path(LMUDataRoot())
+        data_root.mkdir(parents=True, exist_ok=True)
+        data_path = data_root / f'{dataset}.tsv'
+        self.data_path = str(data_path)
+        if data_path.exists():
+            return load(str(data_path))
+
+        repo_path = Path(
+            snapshot_download(
+                repo_id='AI4Math/MathVerse',
+                repo_type='dataset',
+                allow_patterns=['testmini.json', 'images.zip'],
+            )
+        )
+        sentinel = repo_path / '.mathverse_public_extracted'
+        if not sentinel.exists():
+            with zipfile.ZipFile(repo_path / 'images.zip', 'r') as zf:
+                zf.extractall(repo_path)
+            sentinel.write_text('done', encoding='utf-8')
+
+        raw_data = json.loads((repo_path / 'testmini.json').read_text(encoding='utf-8'))
+        rows = []
+        for idx, item in enumerate(raw_data):
+            sample_index = item.get('sample_index', idx)
+            index = int(sample_index) if str(sample_index).isdigit() else idx
+            rows.append(
+                {
+                    'index': index,
+                    'sample_index': sample_index,
+                    'problem_index': item.get('problem_index', ''),
+                    'problem_version': item.get('problem_version', ''),
+                    'question': item.get('query_wo', item.get('question', '')),
+                    'question_for_eval': item.get('question', ''),
+                    'query_cot': item.get('query_cot', item.get('question', '')),
+                    'image_path': str(repo_path / item['image']),
+                    'answer': item.get('answer', ''),
+                    'question_type': item.get('question_type', ''),
+                    'metadata': json.dumps(item.get('metadata', {}), ensure_ascii=False),
+                }
+            )
+
+        data = pd.DataFrame(rows)
+        dump(data, str(data_path))
+        return data
 
     # Given one data record, return the built prompt (a multi-modal message), can override
     def build_prompt(self, line):
